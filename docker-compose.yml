@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  diffusion:
+    build: .
+    image: improved-diffusion:latest
+    container_name: improved-diffusion-env
+    # shm_size is important for PyTorch dataloader when using multiple workers
+    shm_size: '8gb'
+    volumes:
+      - ./:/app
+      # Create a local 'data' directory in the project for your datasets
+      - /path/to/your/dataset:/app/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    command: /bin/bash run_train.sh

@@ -25,6 +25,16 @@ def setup_dist():
     if dist.is_initialized():
         return
 
+    if th.cuda.is_available():
+        # cudnn.benchmark lets cuDNN autotune the fastest conv algorithm for
+        # our fixed input shapes (same image size / batch shape every step),
+        # instead of using a generic heuristic on every call. TF32 trades a
+        # little matmul precision for a lot of throughput on Ampere/Ada
+        # Tensor Cores (RTX 4090); harmless for training.
+        th.backends.cudnn.benchmark = True
+        th.backends.cuda.matmul.allow_tf32 = True
+        th.backends.cudnn.allow_tf32 = True
+
     comm = MPI.COMM_WORLD
     # NCCL's P2P/shared-memory topology probing is known to segfault under
     # Docker on WSL2. A single process has no peers to synchronize with, so

@@ -1,7 +1,5 @@
 from abc import abstractmethod
 
-import math
-
 import numpy as np
 import torch as th
 import torch.nn as nn
@@ -244,12 +242,19 @@ class QKVAttention(nn.Module):
         """
         ch = qkv.shape[1] // 3
         q, k, v = th.split(qkv, ch, dim=1)
-        scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = th.einsum(
-            "bct,bcs->bts", q * scale, k * scale
-        )  # More stable with f16 than dividing afterwards
-        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
-        return th.einsum("bts,bcs->bct", weight, v)
+        # F.scaled_dot_product_attention (torch>=2.0) dispatches to a fused
+        # flash-attention/memory-efficient kernel instead of materializing
+        # the full TxT attention matrix via manual einsum + softmax, which
+        # matters most for the higher-resolution attention layers (e.g.
+        # attention_resolutions containing 32 -> T=1024 tokens). It expects
+        # the sequence dimension before the channel dimension, whereas qkv
+        # here is channel-first, hence the transposes. Its default internal
+        # scale (1/sqrt(ch)) matches this module's original scale*scale.
+        q = q.transpose(-1, -2)
+        k = k.transpose(-1, -2)
+        v = v.transpose(-1, -2)
+        out = F.scaled_dot_product_attention(q, k, v)
+        return out.transpose(-1, -2)
 
     @staticmethod
     def count_flops(model, _x, y):

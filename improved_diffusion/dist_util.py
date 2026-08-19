@@ -26,7 +26,12 @@ def setup_dist():
         return
 
     comm = MPI.COMM_WORLD
-    backend = "gloo" if not th.cuda.is_available() else "nccl"
+    # NCCL's P2P/shared-memory topology probing is known to segfault under
+    # Docker on WSL2. A single process has no peers to synchronize with, so
+    # there is nothing to gain from NCCL there anyway -- use gloo instead.
+    # With multiple ranks (e.g. launched via mpirun on real multi-GPU
+    # hardware), NCCL is still used for performance.
+    backend = "gloo" if not th.cuda.is_available() or comm.size == 1 else "nccl"
 
     if backend == "gloo":
         hostname = "localhost"
@@ -69,7 +74,11 @@ def sync_params(params):
     """
     for p in params:
         with th.no_grad():
-            dist.broadcast(p, 0)
+            # Broadcast into `.data` (detached from autograd) rather than `p`
+            # itself: the gloo backend's in-place write-back to the tensor
+            # trips the "leaf Variable ... in-place operation" check even
+            # inside `no_grad()` when `p` is a parameter that requires grad.
+            dist.broadcast(p.data, 0)
 
 
 def _find_free_port():

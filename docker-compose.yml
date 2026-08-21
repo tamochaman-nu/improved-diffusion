@@ -7,10 +7,17 @@ services:
     container_name: improved-diffusion-env
     # shm_size is important for PyTorch dataloader when using multiple workers
     shm_size: '8gb'
+    environment:
+      # We run right at the edge of the RTX4090's 24GB (model + fp32 master
+      # params + EMA copy + optimizer state leave very little headroom for
+      # activation memory). expandable_segments reduces allocator
+      # fragmentation-related stalls/slowdowns near that ceiling.
+      # Requires torch>=2.1 (this image ships 2.4.1).
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     volumes:
       - ./:/app
-      # Create a local 'data' directory in the project for your datasets
-      - /path/to/your/dataset:/app/data
+      # Host path to your dataset directory, configured via .env (see .env.example).
+      - ${HOST_DATA_DIR}:/app/data
     deploy:
       resources:
         reservations:

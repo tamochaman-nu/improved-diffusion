@@ -92,7 +92,14 @@ class TrainLoop:
                 copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
             ]
 
-        if th.cuda.is_available():
+        # DDP wrapping registers autograd hooks directly on the wrapped
+        # module's parameters (for gradient bucketing/all-reduce), which
+        # cannot be undone by simply swapping out the ddp_model reference
+        # afterwards. With a single process there is no peer to synchronize
+        # gradients with, so those hooks are pure overhead -- measured at
+        # roughly an order of magnitude slower per step on a single RTX 4090.
+        # Only wrap in DDP when there's more than one rank to actually sync.
+        if th.cuda.is_available() and dist.get_world_size() > 1:
             self.use_ddp = True
             self.ddp_model = DDP(
                 self.model,

@@ -28,3 +28,28 @@ services:
     stdin_open: true # docker run -i
     tty: true        # docker run -t
     command: /bin/bash run_train.sh
+
+  inference:
+    build: .
+    image: improved-diffusion:latest
+    container_name: improved-diffusion-inference
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # 学習run/チェックポイント/サンプル数などは run_sample.sh 側で環境変数として
+      # 上書き可能 (例: docker compose run --rm -e NUM_SAMPLES=64 inference)。
+      - SAMPLE_LOGDIR=${SAMPLE_LOGDIR:-}
+      - MODEL_PATH=${MODEL_PATH:-}
+      - MODEL_FLAGS=${MODEL_FLAGS:-}
+      - TIMESTEP_RESPACING=${TIMESTEP_RESPACING:-}
+      - NUM_SAMPLES=${NUM_SAMPLES:-}
+      - BATCH_SIZE=${BATCH_SIZE:-}
+    volumes:
+      - ./:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: /bin/bash run_sample.sh

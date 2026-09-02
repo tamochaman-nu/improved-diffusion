@@ -9,7 +9,7 @@ pip install -e .
 echo "Starting training..."
 
 # モデルやログの保存先をマウントされているプロジェクトフォルダ内（/app/logs -> ローカルの ./logs）に指定します
-export OPENAI_LOGDIR="/app/logs/anime-aligned-curated"
+export OPENAI_LOGDIR="/app/logs/ffhq512"
 mkdir -p $OPENAI_LOGDIR
 
 # ADM(guided-diffusion)の256px標準構成に寄せたパラメータ設定です。
@@ -33,5 +33,20 @@ DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
 # まずは microbatch=4 から実行し、OOMしなければ2倍ずつ試して限界を確認してください。
 TRAIN_FLAGS="--lr 2.5e-5 --batch_size 32 --microbatch 8 --use_fp16 True --lr_anneal_steps 400000"
 
+# --- 前回学習からの再開 ---
+# $OPENAI_LOGDIR 内の modelNNNNNN.pt のうち最大ステップのものを検出して
+# --resume_checkpoint に渡します。train_util.py 側がファイル名からステップ数を
+# 復元し、同じディレクトリの opt{step:06d}.pt / ema_{rate}_{step:06d}.pt も
+# 同時に自動ロードするので、これ以外の指定は不要です。
+# チェックポイントが無ければ（初回実行時）何も付けず最初から学習します。
+RESUME_FLAGS=""
+LATEST_CKPT=$(ls -1 "$OPENAI_LOGDIR"/model[0-9]*.pt 2>/dev/null | sort -V | tail -n 1)
+if [ -n "$LATEST_CKPT" ]; then
+    echo "Resuming from checkpoint: $LATEST_CKPT"
+    RESUME_FLAGS="--resume_checkpoint $LATEST_CKPT"
+else
+    echo "No existing checkpoint found, starting fresh training."
+fi
+
 # 学習スクリプトの実行
-python scripts/image_train.py --data_dir /app/data $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+python scripts/image_train.py --data_dir /app/data $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS $RESUME_FLAGS

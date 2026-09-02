@@ -69,12 +69,21 @@ def load_state_dict(path, **kwargs):
     """
     Load a PyTorch file without redundant fetches across MPI ranks.
     """
-    if MPI.COMM_WORLD.Get_rank() == 0:
+    comm = MPI.COMM_WORLD
+    if comm.Get_size() == 1:
+        # Nothing to broadcast to with a single rank, and mpi4py's
+        # pickle-based bcast fails above ~2GiB (MPI_ERR_ARG) -- which this
+        # model's optimizer checkpoints exceed. Read directly instead.
+        with bf.BlobFile(path, "rb") as f:
+            data = f.read()
+        return th.load(io.BytesIO(data), **kwargs)
+
+    if comm.Get_rank() == 0:
         with bf.BlobFile(path, "rb") as f:
             data = f.read()
     else:
         data = None
-    data = MPI.COMM_WORLD.bcast(data)
+    data = comm.bcast(data)
     return th.load(io.BytesIO(data), **kwargs)
 
 

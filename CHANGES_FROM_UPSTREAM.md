@@ -162,8 +162,9 @@ issue #111の指摘通りlr補正が必要だが、AdamWでは不要（むしろ
 
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`（torch>=2.1要）でRTX4090の24GB上限
   ギリギリでのアロケータ断片化による失速を緩和。
-- ホスト側データセットパスは`.env`（`.gitignore`済み）の`HOST_DATA_DIR`から`docker-compose.yml`
-  経由で`/app/data`にマウントし、リポジトリにローカルパスを持ち込まない。
+- ホスト側データセットパスは`.env`（`.gitignore`済み）の`HOST_DATA_DIR_ANIME`/`HOST_DATA_DIR_FFHQ`から
+  `docker-compose.yml`経由で（`train-anime`/`train-ffhq`サービスそれぞれ）`/app/data`にマウントし、
+  リポジトリにローカルパスを持ち込まない。
 - `run_train.sh`は起動のたびに`pip install -e .`してから学習を開始する（`./:/app`がbind mountの
   ため、イメージビルド時点のコードと実行時のコードがズレないようにするため）。
 - 学習再開の自動化: `$OPENAI_LOGDIR`内の`modelNNNNNN.pt`のうち最大ステップのものを検出して

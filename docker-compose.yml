@@ -1,10 +1,10 @@
 version: '3.8'
 
 services:
-  diffusion:
+  train-anime:
     build: .
     image: improved-diffusion:latest
-    container_name: improved-diffusion-env
+    container_name: improved-diffusion-train-anime
     # shm_size is important for PyTorch dataloader when using multiple workers
     shm_size: '8gb'
     environment:
@@ -14,10 +14,36 @@ services:
       # fragmentation-related stalls/slowdowns near that ceiling.
       # Requires torch>=2.1 (this image ships 2.4.1).
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # run_train.shに出力先ディレクトリを渡す。train-ffhqと別の値にすることで、
+      # 両サービスのチェックポイント/再開ロジックが混ざらないようにしている。
+      - TRAIN_LOGDIR=/app/logs/anime-aligned-curated-rev1
     volumes:
       - ./:/app
-      # Host path to your dataset directory, configured via .env (see .env.example).
-      - ${HOST_DATA_DIR}:/app/data
+      # アニメ調データセットのホスト側パス。.envのHOST_DATA_DIR_ANIMEで指定(.env.example参照)。
+      - ${HOST_DATA_DIR_ANIME}:/app/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    command: /bin/bash run_train.sh
+
+  train-ffhq:
+    build: .
+    image: improved-diffusion:latest
+    container_name: improved-diffusion-train-ffhq
+    shm_size: '8gb'
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - TRAIN_LOGDIR=/app/logs/ffhq-bgremoved
+    volumes:
+      - ./:/app
+      # 実写(FFHQ)データセットのホスト側パス。.envのHOST_DATA_DIR_FFHQで指定(.env.example参照)。
+      - ${HOST_DATA_DIR_FFHQ}:/app/data
     deploy:
       resources:
         reservations:

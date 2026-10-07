@@ -8,8 +8,12 @@ pip install -e .
 
 echo "Starting training..."
 
-# モデルやログの保存先をマウントされているプロジェクトフォルダ内（/app/logs -> ローカルの ./logs）に指定します
-export OPENAI_LOGDIR="/app/logs/ffhq512"
+# モデルやログの保存先をマウントされているプロジェクトフォルダ内（/app/logs -> ローカルの ./logs）に指定します。
+# train-anime/train-ffhqサービス(docker-compose.yml)がそれぞれ別のTRAIN_LOGDIRを
+# 渡すことで、データセットが違うのにログ/チェックポイントディレクトリが同じになり
+# （＝再開ロジックが別データセットの最新checkpointを誤って読み込む）事故を防いでいます。
+# 単体で直接実行した場合は従来通りanime-aligned-curated-rev1になります。
+export OPENAI_LOGDIR="${TRAIN_LOGDIR:-/app/logs/anime-aligned-curated-rev1}"
 mkdir -p $OPENAI_LOGDIR
 
 # ADM(guided-diffusion)の256px標準構成に寄せたパラメータ設定です。

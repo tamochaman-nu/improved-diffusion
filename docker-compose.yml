@@ -1,22 +1,63 @@
 version: '3.8'
 
+# --- 学習ハイパーパラメータ(run_train.shに環境変数として渡される) ---
+# train-anime / train-ffhq 共通のデフォルト値。サービスごとに変えたい値は、各サービスの
+# environmentで「<<: *train-params」の後に同じキーを書けば上書きできます。
+# 値を空文字にするとrun_train.sh側のデフォルト値が使われます。
+# 注意: 再開時にモデル形状に関わる値(IMAGE_SIZE〜USE_SCALE_SHIFT_NORM)を変えると
+# チェックポイントのロードに失敗します。変える場合はTRAIN_LOGDIRも別にしてください。
+x-train-params: &train-params
+  # We run right at the edge of the RTX4090's 24GB (model + fp32 master
+  # params + EMA copy + optimizer state leave very little headroom for
+  # activation memory). expandable_segments reduces allocator
+  # fragmentation-related stalls/slowdowns near that ceiling.
+  # Requires torch>=2.1 (this image ships 2.4.1).
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  # モデル (MODEL_FLAGS)
+  IMAGE_SIZE: "256"
+  NUM_CHANNELS: "256"
+  NUM_RES_BLOCKS: "1"
+  NUM_HEADS: "4"
+  ATTENTION_RESOLUTIONS: "32,16,8"
+  DROPOUT: "0.0"
+  LEARN_SIGMA: "True"
+  CLASS_COND: "False"
+  USE_SCALE_SHIFT_NORM: "True"
+  USE_CHECKPOINT: "True"
+  # 拡散過程 (DIFFUSION_FLAGS)
+  DIFFUSION_STEPS: "1000"
+  NOISE_SCHEDULE: "cosine"
+  # 学習 (TRAIN_FLAGS)。batch_size = 4 * microbatch を保つこと(run_train.shのコメント参照)。
+  LR: "2.5e-5"
+  BATCH_SIZE: "32"
+  MICROBATCH: "8"
+  USE_FP16: "True"
+  LR_ANNEAL_STEPS: "20000"
+  EMA_RATE: "0.9999"
+  LOG_INTERVAL: "10"
+  SAVE_INTERVAL: "5000"
+  # 空なら$TRAIN_LOGDIR内の最新modelNNNNNN.ptから自動再開。パスを指定するとそれを使う。
+  RESUME_CHECKPOINT: ""
+  # 上記以外のimage_train.py引数をそのまま追加 (例: "--weight_decay 0.01")
+  EXTRA_TRAIN_FLAGS: ""
+
 services:
   train-anime:
-    build: .
-    image: improved-diffusion:latest
+    build: &build
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel}
+    # CUDAバージョン違いのイメージが同じタグで上書きされないよう、.envのIMAGE_TAGで分ける
+    image: &image improved-diffusion:${IMAGE_TAG:-latest}
     container_name: improved-diffusion-train-anime
     # shm_size is important for PyTorch dataloader when using multiple workers
     shm_size: '8gb'
     environment:
-      # We run right at the edge of the RTX4090's 24GB (model + fp32 master
-      # params + EMA copy + optimizer state leave very little headroom for
-      # activation memory). expandable_segments reduces allocator
-      # fragmentation-related stalls/slowdowns near that ceiling.
-      # Requires torch>=2.1 (this image ships 2.4.1).
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      <<: *train-params
       # run_train.shに出力先ディレクトリを渡す。train-ffhqと別の値にすることで、
       # 両サービスのチェックポイント/再開ロジックが混ざらないようにしている。
-      - TRAIN_LOGDIR=/app/logs/anime-aligned-curated-rev1
+      TRAIN_LOGDIR: /app/logs/anime-oneres-cosine
+      # このサービスだけ値を変えたい場合はここに追記 (例: LR: "1e-5")
     volumes:
       - ./:/app
       # アニメ調データセットのホスト側パス。.envのHOST_DATA_DIR_ANIMEで指定(.env.example参照)。
@@ -26,20 +67,21 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              device_ids: ['2'] # GPU 2のみ使用する場合。複数GPUを使う場合は['0','1',...]のように指定。
               capabilities: [gpu]
     stdin_open: true # docker run -i
     tty: true        # docker run -t
     command: /bin/bash run_train.sh
 
   train-ffhq:
-    build: .
-    image: improved-diffusion:latest
+    build: *build
+    image: *image
     container_name: improved-diffusion-train-ffhq
     shm_size: '8gb'
     environment:
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - TRAIN_LOGDIR=/app/logs/ffhq-bgremoved
+      <<: *train-params
+      TRAIN_LOGDIR: /app/logs/ffhq-oneres-cosine
+      # このサービスだけ値を変えたい場合はここに追記 (例: LR: "1e-5")
     volumes:
       - ./:/app
       # 実写(FFHQ)データセットのホスト側パス。.envのHOST_DATA_DIR_FFHQで指定(.env.example参照)。
@@ -56,8 +98,8 @@ services:
     command: /bin/bash run_train.sh
 
   inference:
-    build: .
-    image: improved-diffusion:latest
+    build: *build
+    image: *image
     container_name: improved-diffusion-inference
     environment:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

@@ -1,4 +1,11 @@
-FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+# ベースイメージはbuild引数で切り替え可能。ホストのNVIDIAドライバが対応するCUDAバージョン
+# (nvidia-smi右上の"CUDA Version")以下のものを選ぶこと。例:
+#   ドライバ >= 550 (CUDA 12.4): pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel (デフォルト)
+#   ドライバ >= 530 (CUDA 12.1): pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
+#   ドライバ >= 520 (CUDA 11.8): pytorch/pytorch:2.4.1-cuda11.8-cudnn9-devel
+# docker-compose.ymlからは.envのBASE_IMAGE / IMAGE_TAGで指定する(.env.example参照)。
+ARG BASE_IMAGE=pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+FROM ${BASE_IMAGE}
 
 # Avoid interactive prompts during apt installations
 ENV DEBIAN_FRONTEND=noninteractive

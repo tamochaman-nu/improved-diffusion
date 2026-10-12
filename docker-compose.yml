@@ -39,7 +39,7 @@ services:
     shm_size: '8gb'
     environment:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - TRAIN_LOGDIR=/app/logs/ffhq-bgremoved
+      - TRAIN_LOGDIR=/app/logs/ffhq-bgremoved 
     volumes:
       - ./:/app
       # 実写(FFHQ)データセットのホスト側パス。.envのHOST_DATA_DIR_FFHQで指定(.env.example参照)。

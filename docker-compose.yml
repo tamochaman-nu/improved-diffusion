@@ -4,16 +4,11 @@ version: '3.8'
 # train-anime / train-ffhq 共通のデフォルト値。サービスごとに変えたい値は、各サービスの
 # environmentで「<<: *train-params」の後に同じキーを書けば上書きできます。
 # 値を空文字にするとrun_train.sh側のデフォルト値が使われます。
-# 注意: 再開時にモデル形状に関わる値(IMAGE_SIZE〜USE_SCALE_SHIFT_NORM)を変えると
+# 注意: 再開時にモデル形状に関わる値(x-model-paramsの各値)を変えると
 # チェックポイントのロードに失敗します。変える場合はTRAIN_LOGDIRも別にしてください。
-x-train-params: &train-params
-  # We run right at the edge of the RTX4090's 24GB (model + fp32 master
-  # params + EMA copy + optimizer state leave very little headroom for
-  # activation memory). expandable_segments reduces allocator
-  # fragmentation-related stalls/slowdowns near that ceiling.
-  # Requires torch>=2.1 (this image ships 2.4.1).
-  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
-  # モデル (MODEL_FLAGS)
+x-model-params: &model-params
+  # モデル (MODEL_FLAGS)。学習(run_train.sh)とサンプリング(run_sample.sh)で必ず一致させる値なので、
+  # train-* と inference の両方がこの定義を共有する。
   IMAGE_SIZE: "256"
   NUM_CHANNELS: "256"
   NUM_RES_BLOCKS: "1"
@@ -23,10 +18,20 @@ x-train-params: &train-params
   LEARN_SIGMA: "True"
   CLASS_COND: "False"
   USE_SCALE_SHIFT_NORM: "True"
-  USE_CHECKPOINT: "True"
   # 拡散過程 (DIFFUSION_FLAGS)
   DIFFUSION_STEPS: "1000"
   NOISE_SCHEDULE: "cosine"
+
+x-train-params: &train-params
+  <<: *model-params
+  # We run right at the edge of the RTX4090's 24GB (model + fp32 master
+  # params + EMA copy + optimizer state leave very little headroom for
+  # activation memory). expandable_segments reduces allocator
+  # fragmentation-related stalls/slowdowns near that ceiling.
+  # Requires torch>=2.1 (this image ships 2.4.1).
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  # 学習時のみのモデル設定(活性化の再計算でメモリを節約。サンプリングには不要)
+  USE_CHECKPOINT: "True"
   # 学習 (TRAIN_FLAGS)。batch_size = 4 * microbatch を保つこと(run_train.shのコメント参照)。
   LR: "2.5e-5"
   BATCH_SIZE: "32"
@@ -102,15 +107,28 @@ services:
     image: *image
     container_name: improved-diffusion-inference
     environment:
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      # 学習run/チェックポイント/サンプル数などは run_sample.sh 側で環境変数として
-      # 上書き可能 (例: docker compose run --rm -e NUM_SAMPLES=64 inference)。
-      - SAMPLE_LOGDIR=${SAMPLE_LOGDIR:-}
-      - MODEL_PATH=${MODEL_PATH:-}
-      - MODEL_FLAGS=${MODEL_FLAGS:-}
-      - TIMESTEP_RESPACING=${TIMESTEP_RESPACING:-}
-      - NUM_SAMPLES=${NUM_SAMPLES:-}
-      - BATCH_SIZE=${BATCH_SIZE:-}
+      # モデル/拡散過程の設定は学習サービスと同じ x-model-params を使う(学習時と一致が必須)。
+      # 別のモデル構成のrunを読む場合はここに同じキーを書いて上書きするか、.envのMODEL_FLAGSで丸ごと指定する。
+      <<: *model-params
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      # 以下は .env から指定できる(未設定時は右辺のデフォルト)。.env.example 参照。
+      # どの学習runから生成するか: ./logs/<SAMPLE_RUN> (= /app/logs/<SAMPLE_RUN>)
+      SAMPLE_LOGDIR: /app/logs/${SAMPLE_RUN:-anime-oneres-cosine}
+      # チェックポイント: MODEL_PATH(コンテナ内の絶対パス) > CKPT_STEP > 最新のEMA の優先順位
+      MODEL_PATH: ${MODEL_PATH:-}
+      CKPT_STEP: ${CKPT_STEP:-}
+      EMA_RATE: ${EMA_RATE:-0.9999}
+      # MODEL_FLAGSを指定すると、上のモデル設定より丸ごと優先される
+      MODEL_FLAGS: ${MODEL_FLAGS:-}
+      # サンプラー設定。TIMESTEP_RESPACINGを空文字にするとフルステップ(未設定なら250)
+      TIMESTEP_RESPACING: ${TIMESTEP_RESPACING-250}
+      USE_DDIM: ${USE_DDIM:-False}
+      CLIP_DENOISED: ${CLIP_DENOISED:-True}
+      NUM_SAMPLES: ${NUM_SAMPLES:-16}
+      # 学習のBATCH_SIZEと混同しないよう、.envではSAMPLE_BATCH_SIZEで指定する
+      BATCH_SIZE: ${SAMPLE_BATCH_SIZE:-16}
+      # 出力先(空なら <SAMPLE_LOGDIR>/samples/<チェックポイント名>_r<respacing>[_ddim])
+      SAMPLE_OUTDIR: ${SAMPLE_OUTDIR:-}
     volumes:
       - ./:/app
     deploy:
@@ -118,6 +136,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              # 使うGPUは .env の SAMPLE_GPU で指定 (例: SAMPLE_GPU=1)。複数指定はこの行を直接編集する。
+              device_ids: ['${SAMPLE_GPU:-0}']
               capabilities: [gpu]
     command: /bin/bash run_sample.sh

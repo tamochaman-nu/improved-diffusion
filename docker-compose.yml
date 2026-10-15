@@ -1,5 +1,3 @@
-version: '3.8'
-
 # --- 学習ハイパーパラメータ(run_train.shに環境変数として渡される) ---
 # train-anime / train-ffhq 共通のデフォルト値。サービスごとに変えたい値は、各サービスの
 # environmentで「<<: *train-params」の後に同じキーを書けば上書きできます。
@@ -37,7 +35,7 @@ x-train-params: &train-params
   BATCH_SIZE: "32"
   MICROBATCH: "8"
   USE_FP16: "True"
-  LR_ANNEAL_STEPS: "20000"
+  LR_ANNEAL_STEPS: "40000"
   EMA_RATE: "0.9999"
   LOG_INTERVAL: "10"
   SAVE_INTERVAL: "5000"
@@ -72,7 +70,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['2'] # GPU 2のみ使用する場合。複数GPUを使う場合は['0','1',...]のように指定。
+              # 使うGPUは .env の ANIME_GPU で指定 (例: ANIME_GPU=2)。複数GPUを使う場合はこの行を直接編集する。
+              device_ids: ['${ANIME_GPU:-2}']
               capabilities: [gpu]
     stdin_open: true # docker run -i
     tty: true        # docker run -t
@@ -96,7 +95,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              # 使うGPUは .env の FFHQ_GPU で指定 (例: FFHQ_GPU=0)。複数GPUを使う場合はこの行を直接編集する。
+              device_ids: ['${FFHQ_GPU:-0}']
               capabilities: [gpu]
     stdin_open: true # docker run -i
     tty: true        # docker run -t
